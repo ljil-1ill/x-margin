@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>X-Margin 해외구매대행 마진 계산기</title>
+  <meta name="description" content="원가·배송비(USD)를 입력하면 카드수수료, 플랫폼 수수료, 관부가세, 목표 순수익을 반영해 권장 판매가(KRW)를 계산합니다. 설정값은 저장되어 유지됩니다." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="container header-inner">
+      <div class="header-title">
+        <h1>X-Margin 해외구매대행 마진 계산기</h1>
+        <p class="muted">
+          원가·배송비(USD) → 수수료/세금/순수익 반영 → 권장 판매가(KRW). 설정값은 <b>저장</b>하면 계속 유지됩니다.
+        </p>
+      </div>
+      <div class="header-actions">
+        <button class="btn" id="btnCopyPrice" type="button" title="권장 판매가를 클립보드에 복사">가격 복사</button>
+        <button class="btn btn-primary" id="btnSaveQuote" type="button" title="현재 입력값/설정으로 견적을 저장">견적 저장</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-grid">
+    <!-- LEFT -->
+    <section class="stack">
+      <div class="card">
+        <div class="card-head">
+          <h2>입력</h2>
+          <div class="pill" id="taxPill" aria-live="polite">관부가세: 판단 중</div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="inProductUsd">상품 원가 (USD)</label>
+            <input id="inProductUsd" type="number" inputmode="decimal" min="0" step="0.01" placeholder="예: 79.99" />
+            <div class="hint">상품 결제 금액(달러 기준)</div>
+          </div>
+
+          <div class="field">
+            <label for="inShippingUsd">배송비 (USD)</label>
+            <input id="inShippingUsd" type="number" inputmode="decimal" min="0" step="0.01" placeholder="예: 12.00" />
+            <div class="hint">국제 배송/대행 배송비(달러 기준)</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="result-wrap">
+          <div class="result-main">
+            <div class="result-label">권장 판매가</div>
+            <div class="result-price" id="outSalePriceKrw">₩0</div>
+            <div class="result-sub muted" id="outSalePriceMeta">—</div>
+          </div>
+
+          <div class="result-side">
+            <div class="kpi">
+              <div class="kpi-label">예상 순수익</div>
+              <div class="kpi-value" id="outNetProfit">₩0</div>
+              <div class="kpi-sub muted" id="outNetMargin">0.0%</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">총 원가(세금/수수료 포함)</div>
+              <div class="kpi-value" id="outTotalCost">₩0</div>
+              <div class="kpi-sub muted" id="outTotalCostUsd">USD 0.00 기준</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" id="btnRecalc" type="button">다시 계산</button>
+          <button class="btn" id="btnResetInputs" type="button">입력 초기화</button>
+        </div>
+
+        <p class="note">
+          참고: 관부가세 면세 기준은 “총액 USD 150 이하(일반)”이며, 미국발(특례)은 USD 200 기준이 존재합니다.
+          본 계산기는 추정치이므로 실제 통관/카드 청구액과 다를 수 있습니다.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>상세 내역</h2>
+        <div class="breakdown" id="breakdown"></div>
+        <div class="warn" id="warnBox" hidden></div>
+      </div>
+    </section>
+
+    <!-- RIGHT -->
+    <aside class="stack">
+      <div class="card">
+        <div class="card-head">
+          <h2>설정</h2>
+          <div class="muted small" id="settingsStatus">저장되지 않음</div>
+        </div>
+
+        <div class="field">
+          <label>권장 판매가 계산용 환율 (KRW/USD)</label>
+          <div class="row">
+            <input id="inFxKrw" type="number" inputmode="decimal" min="0" step="0.1" placeholder="예: 1350" />
+            <button class="btn" id="btnFetchFx" type="button">실시간 환율 보기</button>
+          </div>
+          <div class="hint">
+            실시간 환율은 참고용으로 표시됩니다. 역마진 방지를 위해, 판매가 계산에는 “고정 환율”을 입력해 사용하세요.
+          </div>
+          <div class="fx-live muted small" id="fxLiveBox" hidden></div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="inCardFee">카드결제 수수료 (%)</label>
+            <input id="inCardFee" type="number" inputmode="decimal" min="0" step="0.01" />
+            <div class="hint">기본 2%</div>
+          </div>
+          <div class="field">
+            <label for="inPlatformFee">플랫폼 수수료 (%)</label>
+            <input id="inPlatformFee" type="number" inputmode="decimal" min="0" step="0.01" />
+            <div class="hint">기본 6%</div>
+          </div>
+        </div>
+
+        <details class="details" open>
+          <summary>순수익 설정</summary>
+
+          <div class="field">
+            <label for="selProfitMode">순수익 방식</label>
+            <select id="selProfitMode">
+              <option value="PERCENT_OF_SALE">순수익률(판매가 기준)</option>
+              <option value="MARKUP_ON_COST">마진율(총원가 기준)</option>
+              <option value="FIXED_KRW">고정 순수익(KRW)</option>
+            </select>
+            <div class="hint">
+              “순수익률”은 <span class="mono">순수익 / 판매가</span>, “마진율”은 <span class="mono">순수익 / 총원가</span> 로 계산합니다.
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="inProfitPercent">비율 (%)</label>
+              <input id="inProfitPercent" type="number" inputmode="decimal" min="0" step="0.01" />
+              <div class="hint">기본 20%</div>
+            </div>
+            <div class="field">
+              <label for="inProfitFixed">고정 순수익 (KRW)</label>
+              <input id="inProfitFixed" type="number" inputmode="numeric" min="0" step="100" />
+              <div class="hint">예: 30000</div>
+            </div>
+          </div>
+        </details>
+
+        <details class="details">
+          <summary>관부가세(추정) 설정</summary>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="inTaxThreshold">면세 기준 (USD)</label>
+              <input id="inTaxThreshold" type="number" inputmode="decimal" min="0" step="1" />
+              <div class="hint">기본 150</div>
+            </div>
+            <div class="field">
+              <label for="chkUs200">미국발 기준(200) 적용</label>
+              <div class="row row-center">
+                <input id="chkUs200" type="checkbox" />
+                <span class="small muted">체크 시 면세 기준을 200으로 자동 설정</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="inDutyRate">관세율(%)</label>
+              <input id="inDutyRate" type="number" inputmode="decimal" min="0" step="0.01" />
+              <div class="hint">기본 8% (품목별 상이)</div>
+            </div>
+            <div class="field">
+              <label for="inVatRate">부가세율(%)</label>
+              <input id="inVatRate" type="number" inputmode="decimal" min="0" step="0.01" />
+              <div class="hint">기본 10%</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="chkTaxIncludeShipping">과세 기준에 배송비 포함</label>
+            <div class="row row-center">
+              <input id="chkTaxIncludeShipping" type="checkbox" />
+              <span class="small muted">일반적으로 과세 가격(CIF)에 배송비가 포함될 수 있습니다.</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="details">
+          <summary>반올림/끝자리</summary>
+          <div class="grid2">
+            <div class="field">
+              <label for="selRoundStep">올림 단위</label>
+              <select id="selRoundStep">
+                <option value="0">사용 안 함</option>
+                <option value="10">10원</option>
+                <option value="100">100원</option>
+                <option value="1000">1,000원</option>
+                <option value="10000">10,000원</option>
+              </select>
+              <div class="hint">안전 마진을 위해 “올림” 처리</div>
+            </div>
+            <div class="field">
+              <label for="chkEndAdjust">끝자리 조정</label>
+              <div class="row row-center">
+                <input id="chkEndAdjust" type="checkbox" />
+                <span class="small muted">예: 1,000원 올림 후 100원 빼기 → 9,900원 끝</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="inEndAdjustAmount">끝자리 조정 금액 (KRW)</label>
+            <input id="inEndAdjustAmount" type="number" inputmode="numeric" min="0" step="10" />
+            <div class="hint">기본 100</div>
+          </div>
+        </details>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" id="btnSaveSettings" type="button">설정 저장</button>
+          <button class="btn" id="btnResetSettings" type="button">설정 초기화</button>
+        </div>
+
+        <p class="note">
+          설정/입력/견적은 브라우저 로컬 저장소(LocalStorage)에 저장됩니다. 다른 기기/브라우저로는 자동 동기화되지 않습니다.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>저장된 견적</h2>
+          <button class="btn" id="btnClearQuotes" type="button">전체 삭제</button>
+        </div>
+        <div class="quotes" id="quotesList"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="container app-footer">
+    <div class="muted small">
+      © X-Margin. Static app for GitHub Pages. No tracking. No server.
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
